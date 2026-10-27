@@ -100,6 +100,7 @@ PY
 remove_task() {
   [ "$DRY" = "1" ] && return 0
   [ "${DSHDESK_KEEP_SCHEDULE:-0}" = "1" ] && return 0
+  schtasks.exe /Change /TN "$TASK_NAME" /DISABLE >/dev/null 2>&1 || true
   schtasks.exe /Delete /TN "$TASK_NAME" /F >/dev/null 2>&1 || true
 }
 
