@@ -7,3 +7,4 @@ node_modules/
 coverage/
 tmp/
 shots/*.tmp.png
+.market-submit-state.json

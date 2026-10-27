@@ -17,6 +17,8 @@ No build step at install. `client.js` is committed and is the final artifact.
 | --- | --- |
 | `bash scripts/check.sh` | **The single success criterion**: rebuild check, syntax, unit tests, manifest/wiring assertions. |
 | `bash scripts/smoke.sh` | Gate then live hot-swap + route checks. |
+| `bash scripts/install-market-task.sh` | Install the daily Windows Task Scheduler retry (WSL has no cron here). |
+| `bash scripts/market-submit.sh --dry` | Read-only marketplace preflight. |
 | `node scripts/build-client.mjs` | Regenerate `client.js` from `src/`. |
 | `node --test test/*.test.mjs` | Unit tests only. |
 | `node scripts/gui-probe.mjs --url <url> --click '[data-dshdesk-trigger]'` | Headless render check. |

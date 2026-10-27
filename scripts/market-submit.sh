@@ -31,11 +31,15 @@ NOTIFIED=0
 load_bark() {
   local conf="${BARK_CONF:-/mnt/c/Users/pingze/.workbuddy/notify.conf}"
   [ -f "$conf" ] || return 0
-  # The file is the user's own local notification config; it is never committed.
-  set -a
-  # shellcheck disable=SC1090
-  . "$conf"
-  set +a
+  # Only BARK_* lines are imported: the same file also contains unquoted
+  # event lists that are not valid shell assignments.
+  while IFS='=' read -r key value; do
+    case "$key" in
+      BARK_BASE|BARK_KEY|BARK_GROUP|BARK_SOUND|BARK_LEVEL)
+        export "$key=$value"
+        ;;
+    esac
+  done < <(grep -E '^BARK_(BASE|KEY|GROUP|SOUND|LEVEL)=' "$conf" 2>/dev/null || true)
 }
 
 notify() {
