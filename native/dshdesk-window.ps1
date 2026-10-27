@@ -222,6 +222,18 @@ function Add-Card {
   [void]$stack.Children.Add($footer)
 
   $cardBorder.Child = $stack
+  $sessionId = [string](Get-Prop $Card 'id' '')
+  $cardBorder.Tag = $sessionId
+  $cardBorder.Cursor = [System.Windows.Input.Cursors]::Hand
+  $cardBorder.ToolTip = '打开会话'
+  $cardBorder.Add_MouseLeftButtonUp({
+    param($sender, $event)
+    $sid = [string]$sender.Tag
+    if (-not [string]::IsNullOrWhiteSpace($sid)) {
+      Post-Mirror ('open?session=' + [uri]::EscapeDataString($sid))
+      $event.Handled = $true
+    }
+  })
   [void]$ColumnPanel.Children.Add($cardBorder)
 }
 
@@ -301,7 +313,8 @@ function Post-Mirror {
   param([string]$Path)
   if ($Port -le 0) { return }
   try {
-    $uri = ('http://127.0.0.1:{0}/{1}?token={2}' -f $Port, $Path, $Token)
+    $separator = if ($Path.Contains('?')) { '&' } else { '?' }
+    $uri = ('http://127.0.0.1:{0}/{1}{2}token={3}' -f $Port, $Path, $separator, $Token)
     Invoke-RestMethod -Uri $uri -Method Post -TimeoutSec 2 | Out-Null
   } catch {}
 }

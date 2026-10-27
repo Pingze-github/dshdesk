@@ -23,7 +23,7 @@ Blank, subagent and archived sessions are hidden. The current session sits first
 
 ### Sidebar bubble (everywhere)
 
-The footer button carries the active-queue total (needs you + in progress + review, excluding done) plus the amber and green dots, in both the wide sidebar and the 56px rail. It opens an 860px bubble to the right of the button, with four equal columns and `Nothing here` for empty ones. The bubble can be dragged and closes on `Escape` or an outside press. Only **newly entering** Needs-you or Review items notify, and only while the board is unfocused.
+The footer button carries the active-queue total (needs you + in progress + review, excluding done) plus the amber and green dots, in both the wide sidebar and the 56px rail. It opens an 860px bubble to the right of the button, with four equal columns and `Nothing here` for empty ones. Clicking a card opens that session and closes the bubble; cards in the pinned window work the same way. The bubble can be dragged and closes on `Escape` or an outside press. Only **newly entering** Needs-you or Review items notify, and only while the board is unfocused.
 
 ### Pinned window (desktop + Windows only)
 

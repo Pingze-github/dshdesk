@@ -38,8 +38,9 @@ dot, name, count and cards. Empty columns say `暂无`. The bubble is portalled 
 `body`, can be dragged by its header, closes on `Escape` or an outside press,
 and has a pin button only when the host can create a native window.
 
-Cards show title, project, relative time and a status pill. They are display
-only.
+Cards show title, project, relative time and a status pill. Clicking one calls
+`uiWorkspace.openSession()` and closes the surface; the pinned window sends the
+same request through its loopback bridge. No card mutates session state.
 
 ### Native Windows companion window
 

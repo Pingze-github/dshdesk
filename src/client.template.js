@@ -339,13 +339,18 @@ window.__ModuleLoader__.load({
     }
 
     function Card(props) {
-      const { card, t } = props
+      const { card, t, onOpen } = props
       return h(
-        'div',
+        'button',
         {
+          type: 'button',
           className: 'dshdesk-card' + (card.current ? ' dshdesk-cardCurrent' : ''),
           'data-card-id': card.id,
-          'data-current': card.current ? 'true' : 'false'
+          'data-current': card.current ? 'true' : 'false',
+          title: card.title,
+          onClick: function () {
+            onOpen(card.id)
+          }
         },
         h('div', { className: 'dshdesk-cardTitle', title: card.title }, card.title),
         h(
@@ -371,7 +376,7 @@ window.__ModuleLoader__.load({
     }
 
     function Column(props) {
-      const { id, label, cards, t } = props
+      const { id, label, cards, t, onOpen } = props
       return h(
         'section',
         { className: 'dshdesk-column dshdesk-column-' + id, 'data-column': id },
@@ -388,7 +393,7 @@ window.__ModuleLoader__.load({
           cards.length === 0
             ? h('div', { className: 'dshdesk-empty' }, t('panel.empty'))
             : cards.map(function (card) {
-                return h(Card, { key: card.id, card: card, t: t })
+                return h(Card, { key: card.id, card: card, t: t, onOpen: onOpen })
               })
         )
       )
@@ -407,7 +412,8 @@ window.__ModuleLoader__.load({
         pinError,
         pinned,
         dragHandlers,
-        closeRef
+        closeRef,
+        onOpen
       } = props
       if (!position) return null
       const style = {
@@ -496,7 +502,8 @@ window.__ModuleLoader__.load({
                 id: entry[0],
                 label: entry[1],
                 cards: board.columns[entry[0]] || [],
-                t: t
+                t: t,
+                onOpen: onOpen
               })
             })
           ),
@@ -540,8 +547,26 @@ window.__ModuleLoader__.load({
       const boardRef = react.useRef(null)
       const themeRef = react.useRef(null)
       const pinnedRef = react.useRef(false)
+      const suppressReturnRef = react.useRef(false)
 
       pinnedRef.current = pinned
+
+      const navigateToSession = function (sessionId) {
+        if (!sessionId) return false
+        try {
+          if (workspaceService && typeof workspaceService.openSession === 'function') {
+            workspaceService.openSession(sessionId)
+            return true
+          }
+          if (workspaceService && workspaceService.selection && typeof workspaceService.selection.set === 'function') {
+            workspaceService.selection.set({ sessionId: sessionId })
+            return true
+          }
+        } catch {
+          /* navigation is best-effort; never lock the workbench */
+        }
+        return false
+      }
 
       const board = react.useMemo(
         function () {
@@ -643,11 +668,27 @@ window.__ModuleLoader__.load({
                 if (cancelled) return
                 const isOpen = data && data.open === true
                 setNativeFocused(data && data.focused === true)
-                if (isOpen && !pinnedRef.current) {
+                const requestedSessionId = data && data.requestedSessionId
+                if (requestedSessionId) {
+                  const navigated = navigateToSession(requestedSessionId)
+                  postJson('/opened', { sessionId: requestedSessionId }).catch(function () {})
+                  if (navigated) {
+                    suppressReturnRef.current = true
+                    setOpen(false)
+                    setPinned(false)
+                    postJson('/unpin', {}).catch(function () {})
+                    try {
+                      window.focus()
+                    } catch {}
+                  }
+                }
+                if (!requestedSessionId && !suppressReturnRef.current && isOpen && !pinnedRef.current) {
                   setPinned(true)
-                } else if (!isOpen && pinnedRef.current) {
+                } else if (!requestedSessionId && !isOpen && (pinnedRef.current || suppressReturnRef.current)) {
+                  const suppress = suppressReturnRef.current
+                  suppressReturnRef.current = false
                   setPinned(false)
-                  setOpen(true)
+                  if (!suppress) setOpen(true)
                 }
               })
               .catch(function () {})
@@ -793,6 +834,10 @@ window.__ModuleLoader__.load({
           })
       }
 
+      const openCardSession = function (sessionId) {
+        if (navigateToSession(sessionId)) setOpen(false)
+      }
+
       const onTrigger = function () {
         ensureNotificationPermission()
         if (pinned) {
@@ -831,7 +876,8 @@ window.__ModuleLoader__.load({
               pinError: pinError,
               pinned: pinned,
               dragHandlers: { onPointerDown: onDragStart },
-              closeRef: closeRef
+              closeRef: closeRef,
+              onOpen: openCardSession
             })
           : null
       )
@@ -870,7 +916,9 @@ window.__ModuleLoader__.load({
       '.dshdesk-columnCount{min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-tertiary);font-size:10px;line-height:18px;text-align:center;font-variant-numeric:tabular-nums}',
       '.dshdesk-columnBody{display:flex;flex-direction:column;gap:6px;min-height:0;padding:0 6px 6px;overflow-y:auto;scrollbar-width:thin}',
       '.dshdesk-empty{display:flex;align-items:center;justify-content:center;min-height:54px;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}',
-      '.dshdesk-card{box-sizing:border-box;display:flex;flex-direction:column;gap:4px;padding:8px 9px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-alias-bg-layer-1);box-shadow:0 1px 1px #00000008}',
+      '.dshdesk-card{box-sizing:border-box;display:flex;flex-direction:column;gap:4px;width:100%;margin:0;padding:8px 9px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-alias-bg-layer-1);box-shadow:0 1px 1px #00000008;color:inherit;font:inherit;text-align:left;cursor:pointer;appearance:none}',
+      '.dshdesk-card:hover{background:var(--dsw-alias-interactive-bg-hover)}',
+      '.dshdesk-card:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-1px}',
       '.dshdesk-cardCurrent{border-color:var(--dsw-alias-state-business-primary);box-shadow:inset 2px 0 0 var(--dsw-alias-state-business-primary)}',
       '.dshdesk-cardTitle{font-size:13px;line-height:18px;font-weight:500;color:var(--dsw-alias-label-primary);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere}',
       '.dshdesk-cardMeta{display:flex;align-items:center;gap:5px;min-width:0;font-size:10px;line-height:15px;color:var(--dsw-alias-label-tertiary)}',

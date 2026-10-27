@@ -65,8 +65,10 @@ for (const needle of [
   '${BASE}/pin',
   '${BASE}/unpin',
   '${BASE}/window',
+  '${BASE}/opened',
   'STALE_MS = 6000',
   'dshdesk-window.ps1',
+  'requestedSessionId',
   'powershell'
 ]) {
   if (!host.includes(needle)) fail(`index.js missing ${needle}`)
@@ -89,7 +91,9 @@ for (const needle of [
   'FromMilliseconds(800)',
   'Opacity',
   'SELFTEST_OK',
-  'Invoke-Mirror'
+  'Invoke-Mirror',
+  'Post-Mirror',
+  'Add_MouseLeftButtonUp'
 ]) {
   if (!nativeText.includes(needle)) fail(`native script missing ${needle}`)
 }

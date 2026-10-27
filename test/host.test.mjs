@@ -95,7 +95,7 @@ test('host registers every route and reports capabilities', async () => {
   apply(ctx)
   assert.deepEqual(
     [...routes.keys()].sort(),
-    ['/dshdesk/capabilities', '/dshdesk/pin', '/dshdesk/snapshot', '/dshdesk/unpin', '/dshdesk/window'].sort()
+    ['/dshdesk/capabilities', '/dshdesk/opened', '/dshdesk/pin', '/dshdesk/snapshot', '/dshdesk/unpin', '/dshdesk/window'].sort()
   )
   const capabilities = await invokeGet(routes.get('/dshdesk/capabilities'))
   assert.equal(capabilities.status, 200)

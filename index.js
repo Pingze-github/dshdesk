@@ -149,6 +149,7 @@ function createHost(ctx) {
   let windowProc = null
   let closeRequested = false
   let focused = false
+  let openRequest = null
   let lastError = ''
   let lastOpenedAt = 0
   let disposed = false
@@ -211,6 +212,7 @@ function createHost(ctx) {
     windowProc = null
     closeRequested = false
     focused = false
+    openRequest = null
     lastError = reason || ''
     log('info', `native window closed${reason ? `: ${reason}` : ''}`)
     stopMirrorSoon(20)
@@ -271,6 +273,16 @@ function createHost(ctx) {
         desiredOpacity = clampOpacity(url.searchParams.get('value'))
         writeState({ ...readState(), opacity: desiredOpacity })
         sendJson(response, 200, { ok: true, opacity: desiredOpacity })
+        return
+      }
+      if (url.pathname === '/open') {
+        const sessionId = board.cleanText(url.searchParams.get('session'), 200)
+        if (!sessionId) {
+          sendJson(response, 400, { error: 'session required' })
+          return
+        }
+        openRequest = { sessionId, at: Date.now() }
+        sendJson(response, 200, { ok: true, sessionId })
         return
       }
       if (url.pathname === '/closed') {
@@ -393,6 +405,11 @@ function createHost(ctx) {
     isOpen,
     launch,
     markClose,
+    clearOpenRequest(sessionId) {
+      if (!openRequest) return
+      if (typeof sessionId === 'string' && openRequest.sessionId !== sessionId) return
+      openRequest = null
+    },
     storeSnapshot,
     dispose,
     log,
@@ -404,6 +421,9 @@ function createHost(ctx) {
     },
     get focused() {
       return focused
+    },
+    get requestedSessionId() {
+      return openRequest && openRequest.sessionId ? openRequest.sessionId : null
     },
     get opacity() {
       return desiredOpacity
@@ -480,9 +500,24 @@ export function apply(ctx) {
         open: host.isOpen(),
         supported: host.capability().window,
         focused: host.focused,
+        requestedSessionId: host.requestedSessionId,
         error: host.lastError || null,
         openedAt: host.lastOpenedAt || null
       })
+    })
+
+    register(`${BASE}/opened`, (request, response) => {
+      if (request.method !== 'POST') {
+        sendJson(response, 405, { error: 'POST required' })
+        return
+      }
+      readBody(request).then(
+        (body) => {
+          host.clearOpenRequest(body && body.sessionId)
+          sendJson(response, 200, { ok: true })
+        },
+        (error) => sendJson(response, 400, { error: error.message })
+      )
     })
 
     return () => {

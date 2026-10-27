@@ -69,7 +69,10 @@ dsh plugin --profile web add link:/mnt/f/DSH/dshdesk
 - Bubble: 860px wide (clamped to viewport), four equal columns, header drag,
   Escape/outside close, `z-index` 2147483000, portalled to `body`.
 - Native: 900×620, min 760×210, opacity 0.9, 800 ms poll, 6 s stale.
-- No card mutations. Do not add manual completion, drag-to-column or status
+- Clicking a card is navigation only: `uiWorkspace.openSession(id)`, never a
+  status write. The native window posts `open?session=…` to the mirror, the web
+  client consumes it from `/dshdesk/window`, then unpins without reopening the
+  bubble. No card mutations: no manual completion, drag-to-column or status
   writes.
 
 ## Publishing
