@@ -1,0 +1,306 @@
+/**
+ * Render the live Web GUI in headless Chromium and report what actually
+ * reached the DOM.
+ *
+ * The bundled Debian Chromium predates the `Iterator` global the harness's
+ * document-preview bundle touches at module scope, so the probe installs a
+ * one-line polyfill before any page script runs. Everything else is the real
+ * app: same server, same plugin graph, same client bundles.
+ *
+ * Usage:
+ *   node scripts/gui-probe.mjs --url <authenticated-url> --out <shot.png>
+ *                              [--wait <selector>] [--click <selector>]
+ *                              [--session <id>] [--timeout <ms>]
+ *                              [--seed '<key>=<json>'] [--profile <dir>]
+ *                              [--report '<js expression>']
+ *
+ * @module dshdesk/scripts/gui-probe
+ */
+
+import { spawn } from "node:child_process";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
+
+const argv = process.argv.slice(2);
+const arg = (flag, fallback) => {
+	const index = argv.indexOf(flag);
+	return index === -1 ? fallback : argv[index + 1];
+};
+
+const url = arg("--url");
+const out = arg("--out");
+const waitFor = arg("--wait");
+const sessionId = arg("--session");
+const click = arg("--click");
+const timeoutMs = Number(arg("--timeout", "45000"));
+// 0 = let Chromium pick a free port and read it back from DevToolsActivePort.
+// A fixed port is a shared socket: a probe killed by its caller's timeout leaves
+// a browser behind, and the next run can then attach to that stale page — which
+// is how a walk ends up reading another run's session, replaying its console
+// history, and waiting on elements that were never there.
+const requestedPort = Number(arg("--port", "0"));
+const profileDir = arg("--profile", `/tmp/dshdesk-probe-${process.pid}`);
+const seedPair = arg("--seed");
+const forceDesktop = argv.includes("--force-desktop");
+const reportExpr = arg(	"--report",
+	`JSON.stringify({
+		bootFailure: document.body.innerText.includes("Failed to load plugins"),
+		trigger: !!document.querySelector("[data-dshdesk-trigger]"),
+		triggerText: document.querySelector("[data-dshdesk-trigger]")?.innerText ?? null,
+		panel: !!document.querySelector(".dshdesk-panel"),
+		columns: [...document.querySelectorAll(".dshdesk-column")].map((n) => ({ id: n.getAttribute("data-column"), text: n.innerText })),
+		cards: [...document.querySelectorAll(".dshdesk-card")].map((n) => n.innerText),
+		pin: !!document.querySelector("[data-dshdesk-pin]")
+	})`
+);
+
+if (url === undefined) {
+	process.stderr.write("gui-probe: --url is required\n");
+	process.exit(2);
+}
+
+/** The harness bundle touches `Iterator.prototype` at module scope. */
+const POLYFILL = "globalThis.Iterator = globalThis.Iterator || function Iterator() {}; Iterator.prototype = Object.getPrototypeOf(Object.getPrototypeOf([][Symbol.iterator]()));";
+
+let chromium = spawn(
+	"chromium",
+	[
+		"--headless",
+		"--no-sandbox",
+		"--disable-gpu",
+		"--hide-scrollbars",
+		"--disable-dev-shm-usage",
+		`--user-data-dir=${profileDir}`,
+		`--remote-debugging-port=${String(requestedPort)}`,
+		`--window-size=${arg("--size", "1500,1400")}`,
+		"about:blank"
+	],
+	{ stdio: ["ignore", "ignore", "ignore"] }
+);
+
+let socket;
+let nextId = 1;
+const pending = new Map();
+const consoleErrors = [];
+const blockedForeign = [];
+const stoppedNavigations = [];
+const foreignRequests = [];
+
+/**
+ * No CDP call may hang the probe: a navigated-away target swallows responses.
+ * A report that deliberately waits for the host's cold fold needs headroom —
+ * the report route measured 63 s cold on a 168-session machine, and a walk
+ * touches both the bill and the fine fold — so the bound is 320 s, above the
+ * 260 s settle timer gui-views installs inside the page. A shorter bound kills
+ * the evaluation before that timer can answer with what it collected.
+ */
+const SEND_TIMEOUT_MS = 320000;
+
+function send(method, params = {}) {
+	const id = nextId++;
+	try {
+		socket.send(JSON.stringify({ id, method, params }));
+	} catch (error) {
+		return Promise.reject(new Error(`gui-probe: ${method} could not be sent (${String(error?.message ?? error)})`));
+	}
+	return new Promise((resolve, reject) => {
+		const timer = setTimeout(() => {
+			pending.delete(id);
+			reject(new Error(`gui-probe: ${method} did not answer within ${String(SEND_TIMEOUT_MS)}ms`));
+		}, SEND_TIMEOUT_MS);
+		pending.set(id, {
+			resolve: (value) => {
+				clearTimeout(timer);
+				resolve(value);
+			},
+			reject: (error) => {
+				clearTimeout(timer);
+				reject(error);
+			}
+		});
+	});
+}
+
+/** The port this probe's own Chromium bound, so a stale browser can never answer. */
+async function debugPort(deadline) {
+	if (requestedPort !== 0) return requestedPort;
+	const file = join(profileDir, "DevToolsActivePort");
+	while (Date.now() < deadline) {
+		if (existsSync(file)) {
+			const chosen = Number(readFileSync(file, "utf8").split("\n")[0]);
+			if (Number.isInteger(chosen) && chosen > 0) return chosen;
+		}
+		await delay(100);
+	}
+	throw new Error("gui-probe: chromium never wrote DevToolsActivePort");
+}
+
+async function connect(deadline) {
+	const port = await debugPort(deadline);
+	while (Date.now() < deadline) {
+		try {
+			const answer = await fetch(`http://127.0.0.1:${port}/json/list`);
+			const targets = await answer.json();
+			const page = targets.find((target) => target.type === "page");
+			if (page !== undefined) return page.webSocketDebuggerUrl;
+		} catch {}
+		await delay(200);
+	}
+	throw new Error("gui-probe: chromium never exposed a page target");
+}
+
+async function evaluate(expression) {
+	const result = await send("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true });
+	if (result.exceptionDetails !== undefined) throw new Error(`gui-probe: evaluate failed: ${result.exceptionDetails.text}`);
+	return result.result?.value;
+}
+
+async function main() {
+	const deadline = Date.now() + timeoutMs;
+	const wsUrl = await connect(deadline);
+	socket = new WebSocket(wsUrl);
+	await new Promise((resolve, reject) => {
+		socket.addEventListener("open", resolve, { once: true });
+		socket.addEventListener("error", () => reject(new Error("gui-probe: websocket failed")), { once: true });
+	});
+	socket.addEventListener("message", (event) => {
+		const message = JSON.parse(event.data);
+		if (message.id !== undefined) {
+			const seat = pending.get(message.id);
+			pending.delete(message.id);
+			if (message.error !== undefined) seat?.reject(new Error(`gui-probe: ${message.error.message}`));
+			else seat?.resolve(message.result ?? {});
+			return;
+		}
+		// The page under test loads content from a site a session once fetched, and
+		// that page's own scripts navigate the inspected target away — taking the
+		// probe's target with them. Verification cannot be at the mercy of a foreign
+		// page, so everything that is not this app is refused at the browser, and
+		// what was refused is reported rather than silently dropped.
+		if (message.method === "Fetch.requestPaused") {
+			const held = message.params;
+			const target = held?.request?.url ?? "";
+			if (/^https?:\/\/(127\.0\.0\.1|localhost)(:|\/)/.test(target)) {
+				send("Fetch.continueRequest", { requestId: held.requestId }).catch(() => {});
+			} else if (message.params.resourceType === "Document") {
+				// Failing a navigation leaves its own error page behind, which is how
+				// "blocked" turned into losing the page under test. A 204 is a
+				// navigation the browser declines to perform: the document stays put.
+				stoppedNavigations.push({ url: target, resourceType: message.params.resourceType });
+				send("Fetch.fulfillRequest", { requestId: held.requestId, responseCode: 204, responseHeaders: [] }).catch(() => {});
+			} else {
+				blockedForeign.push(target);
+				send("Fetch.failRequest", { requestId: held.requestId, errorReason: "BlockedByClient" }).catch(() => {});
+			}
+			return;
+		}
+		// Refusing the load is not enough: the app's document is already gone by
+		// then, replaced by a network error page. The navigation itself is what has
+		// to be cancelled, so the page under test stays under test.
+		if (message.method === "Page.frameScheduledNavigation" || message.method === "Page.frameRequestedNavigation") {
+			const target = message.params?.url ?? "";
+			if (!/^https?:\/\/(127\.0\.0\.1|localhost)(:|\/)/.test(target)) {
+				stoppedNavigations.push({ url: target, reason: message.params?.reason ?? "unknown" });
+				send("Page.stopLoading", {}).catch(() => {});
+			}
+			return;
+		}
+		// Who asked for it: the initiator names the script and the line, which is
+		// the difference between "a foreign page" and "this bundle, here".
+		if (message.method === "Network.requestWillBeSent") {
+			const held = message.params;
+			const target = held?.request?.url ?? "";
+			if (/^https?:\/\//.test(target) && !/^https?:\/\/(127\.0\.0\.1|localhost)(:|\/)/.test(target) && foreignRequests.length < 6) {
+				foreignRequests.push({
+					url: target,
+					type: held.type,
+					from: held.documentURL,
+					initiator: held.initiator?.type,
+					stack: (held.initiator?.stack?.callFrames ?? []).slice(0, 2).map((frame) => `${frame.functionName || "?"}@${(frame.url || "").slice(0, 90)}:${frame.lineNumber}`)
+				});
+			}
+		}
+		if (message.method === "Runtime.exceptionThrown") {
+			consoleErrors.push(message.params.exceptionDetails?.exception?.description ?? message.params.exceptionDetails?.text ?? "exception");
+		}
+		if (message.method === "Runtime.consoleAPICalled" && message.params.type === "error") {
+			consoleErrors.push(message.params.args.map((a) => a.value ?? a.description ?? "").join(" "));
+		}
+	});
+
+	await send("Page.enable");
+	await send("Runtime.enable");
+	await send("Fetch.enable", { patterns: [{ urlPattern: "*" }] });
+	await send("Network.enable");
+	await send("Page.addScriptToEvaluateOnNewDocument", { source: POLYFILL });
+	if (forceDesktop) {
+		await send("Page.addScriptToEvaluateOnNewDocument", { source: "window.__DSHSDESK_FORCE_DESKTOP__ = true" });
+	}
+	if (sessionId !== undefined) {
+		const seed = `try { localStorage.setItem("dsh.sessions.current", JSON.stringify({ sessionId: ${JSON.stringify(sessionId)} })); } catch {}`;
+		await send("Page.addScriptToEvaluateOnNewDocument", { source: seed });
+	}
+	if (seedPair !== undefined) {
+		// A storage seed installed before any page script runs. This is the only
+		// reliable way to test mount-time reads: writing storage from a report
+		// races the component that already read it.
+		const split = seedPair.indexOf("=");
+		const key = seedPair.slice(0, split);
+		const value = seedPair.slice(split + 1);
+		const source = `try { localStorage.setItem(${JSON.stringify(key)}, ${JSON.stringify(value)}); } catch {}`;
+		await send("Page.addScriptToEvaluateOnNewDocument", { source });
+	}
+	await send("Page.navigate", { url });
+
+	if (waitFor !== undefined) {
+		while (Date.now() < deadline) {
+			try {
+				if (await evaluate(`!!document.querySelector(${JSON.stringify(waitFor)})`)) break;
+			} catch {}
+			await delay(300);
+		}
+	} else {
+		await delay(6000);
+	}
+	if (click !== undefined) {
+		await evaluate(`document.querySelector(${JSON.stringify(click)})?.click()`);
+		await delay(1200);
+	}
+	// Let the last paint settle before capturing.
+	await delay(1200);
+
+	let report = null;
+	let failure = null;
+	try {
+		report = await evaluate(`(() => (${reportExpr}))()`);
+	} catch (error) {
+		failure = String(error?.message ?? error);
+	}
+	if (out !== undefined) {
+		// Only when a picture was asked for, and never unbounded: a target that
+		// navigated away swallows this response forever, and the probe then dies at
+		// the caller's timeout having printed nothing at all.
+		try {
+			const shot = await Promise.race([
+				send("Page.captureScreenshot", { format: "png", captureBeyondViewport: true }),
+				delay(5000).then(() => null)
+			]);
+			if (shot !== null) writeFileSync(out, Buffer.from(shot.data, "base64"));
+		} catch {}
+	}
+
+	process.stdout.write(`${JSON.stringify({ report, failure, consoleErrors, blockedCount: blockedForeign.length, stoppedNavigations, foreignRequests }, null, 1)}\n`);
+}
+
+main()
+	.catch((error) => {
+		process.stderr.write(`${String(error?.stack ?? error)}\n`);
+		process.exitCode = 1;
+	})
+	.finally(() => {
+		try {
+			socket?.close();
+		} catch {}
+		chromium.kill("SIGKILL");
+	});

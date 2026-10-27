@@ -1,0 +1,71 @@
+{
+  "name": "dshdesk",
+  "version": "0.1.0",
+  "private": false,
+  "description": "A read-only attention board for DeepSeek Harness: fold every session into 需要你 / 进行中 / 验收 / 完成, with an optional true always-on-top Windows companion window.",
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "dsh",
+    "dashboard",
+    "attention",
+    "always-on-top"
+  ],
+  "license": "MIT",
+  "author": "Pingze-github",
+  "homepage": "https://github.com/Pingze-github/dshdesk#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Pingze-github/dshdesk.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Pingze-github/dshdesk/issues"
+  },
+  "type": "module",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "client.js",
+    "lib",
+    "native",
+    "cordis.patch.yml",
+    "README.md",
+    "README.en.md",
+    "LICENSE",
+    "screenshots.json",
+    "shots"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-connection",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-workspace",
+        "@deepseek-ai/dsh-client-ui-session"
+      ],
+      "platform": "web"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2"
+  },
+  "scripts": {
+    "build": "node scripts/build-client.mjs",
+    "test": "node --test test/*.test.mjs",
+    "check": "bash scripts/check.sh"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
