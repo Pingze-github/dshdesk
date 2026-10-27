@@ -54,9 +54,9 @@ window.__ModuleLoader__.load({
           }
 
     const DICT_ZH = {
-      'button.title': '任务看板',
-      'button.aria': '任务看板：进行中 {running} 项，需要你 {needs} 项，验收 {review} 项',
-      'button.label': '任务看板',
+      'button.title': '工作台',
+      'button.aria': '工作台：进行中 {running} 项，需要你 {needs} 项，验收 {review} 项',
+      'button.label': '工作台',
       'panel.close': '关闭',
       'panel.pin': '钉成置顶小窗',
       'panel.pinActive': '关闭置顶小窗',
@@ -71,10 +71,10 @@ window.__ModuleLoader__.load({
       'panel.opacity': '透明度',
       'panel.alwaysOnTop': '置顶',
       'panel.unpin': '取消置顶',
-      'panel.notificationHint': '看板未聚焦时，新进入「需要你」或「验收」会发系统通知',
+      'panel.notificationHint': '工作台未聚焦时，新进入「需要你」或「验收」会发系统通知',
       'panel.loading': '正在读取…',
       'panel.error': '读取失败，请稍后重试',
-      'panel.drag': '拖动看板',
+      'panel.drag': '拖动工作台',
       'panel.ready': '实时',
       'panel.pinned': '已钉住',
       'panel.browser': '网页版',
@@ -82,9 +82,9 @@ window.__ModuleLoader__.load({
     }
 
     const DICT_EN = {
-      'button.title': 'Attention board',
-      'button.aria': 'Attention board: {running} in progress, {needs} need you, {review} to review',
-      'button.label': 'Task board',
+      'button.title': 'Workbench',
+      'button.aria': 'Workbench: {running} in progress, {needs} need you, {review} to review',
+      'button.label': 'Workbench',
       'panel.close': 'Close',
       'panel.pin': 'Pin as always-on-top',
       'panel.pinActive': 'Close pinned window',
@@ -99,10 +99,10 @@ window.__ModuleLoader__.load({
       'panel.opacity': 'Opacity',
       'panel.alwaysOnTop': 'Always on top',
       'panel.unpin': 'Stop always on top',
-      'panel.notificationHint': 'When the board is unfocused, new “Needs you” or “Review” items send a system notification',
+      'panel.notificationHint': 'When the workbench is unfocused, new “Needs you” or “Review” items send a system notification',
       'panel.loading': 'Reading…',
-      'panel.error': 'Could not read the board; try again shortly',
-      'panel.drag': 'Drag board',
+      'panel.error': 'Could not read the workbench; try again shortly',
+      'panel.drag': 'Drag workbench',
       'panel.ready': 'Live',
       'panel.pinned': 'Pinned',
       'panel.browser': 'Browser',
