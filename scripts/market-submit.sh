@@ -179,23 +179,27 @@ if [ -n "$EXISTING" ]; then
 fi
 
 if [ "$DRY" = "1" ]; then
-  echo "market-submit: dry run — would sync fork, create $ENTRY, and open a PR"
+  echo "market-submit: dry run — would create $ENTRY, and open a PR"
   finish ok "dry run 通过（仓库已满 ${AGE_HOURS}h）" "$REPO_URL"
 fi
 
-echo "market-submit: syncing fork"
+echo "market-submit: preparing fork branch"
 if ! gh api "repos/$OWNER/$CATALOG_REPO" >/dev/null 2>&1; then
   gh repo fork "$CATALOG_OWNER/$CATALOG_REPO" --clone=false >/dev/null 2>&1 || finish fail "创建/读取 fork 失败" "$REPO_URL"
 fi
-gh repo sync "$OWNER/$CATALOG_REPO" --source "$CATALOG_OWNER/$CATALOG_REPO" --branch main >/dev/null 2>&1 || \
-  gh repo sync "$OWNER/$CATALOG_REPO" --source "$CATALOG_OWNER/$CATALOG_REPO" --branch main --force >/dev/null 2>&1 || \
-  finish fail "同步 fork 失败" "$REPO_URL"
 
-BASE="$(gh api "repos/$OWNER/$CATALOG_REPO/git/ref/heads/main" --jq .object.sha 2>/dev/null)" || finish fail "读取 fork main 失败" "$REPO_URL"
-gh api -X DELETE "repos/$OWNER/$CATALOG_REPO/git/refs/heads/$BRANCH" >/dev/null 2>&1 || true
-gh api -X POST "repos/$OWNER/$CATALOG_REPO/git/refs" -f ref="refs/heads/$BRANCH" -f sha="$BASE" >/dev/null 2>&1 || finish fail "创建 fork 分支失败" "$REPO_URL"
-
-read -r -d '' YAML <<YAML || true
+WORK_DIR="$(mktemp -d /tmp/dshdesk-catalog-XXXXXX)"
+cleanup_work() { rm -rf "$WORK_DIR"; }
+trap 'cleanup_work' EXIT
+# A shallow clone of upstream main; the branch is pushed over SSH, which (unlike
+# the REST API) is not blocked by the catalog's workflow-file changes needing a
+# `workflow` OAuth scope. The fork's own main can stay behind: the PR branch is
+# based on upstream main, so the diff is exactly this one YAML file.
+git clone --depth 1 -q "https://github.com/$CATALOG_OWNER/$CATALOG_REPO.git" "$WORK_DIR" || finish fail "克隆目录仓库失败" "$REPO_URL"
+git -C "$WORK_DIR" remote add fork "git@github.com:$OWNER/$CATALOG_REPO.git" || finish fail "配置 fork 远端失败" "$REPO_URL"
+git -C "$WORK_DIR" checkout -q -B "$BRANCH" || finish fail "创建目录分支失败" "$REPO_URL"
+mkdir -p "$WORK_DIR/$(dirname "$ENTRY")"
+cat > "$WORK_DIR/$ENTRY" <<YAML
 url: https://github.com/${OWNER}/${REPO}
 name: ${OWNER}/${REPO}
 category: ui
@@ -203,11 +207,16 @@ description:
   en: 'A read-only attention board that folds every DSH session into Needs you, In progress, Review and Done, derived from the harness status facts. A footer button opens an 860px live bubble; on a Windows desktop shell it can be pinned into a true 900x620 always-on-top WPF companion that mirrors the board every 800ms and hides the pin in plain browsers. No card is authored, dragged or completed by hand.'
   zh: '只读任务看板：把每个 DSH 会话实时折成「需要你 / 进行中 / 验收 / 完成」四栏，栏位完全由宿主状态推导；侧边栏底部按钮打开 860px 实时气泡，桌面端还能钉成真正的 900x620 Windows 置顶小窗（WPF），每 800ms 镜像主窗、6 秒断线自动关闭，网页端不显示图钉。不拖拽、不手动完成、不写回会话状态。'
 YAML
-B64="$(printf '%s' "$YAML" | base64 -w0)"
-gh api -X PUT "repos/$OWNER/$CATALOG_REPO/contents/$ENTRY" \
-  -f message="Add ${OWNER}/${REPO} to the catalog" \
-  -f content="$B64" \
-  -f branch="$BRANCH" >/dev/null 2>&1 || finish fail "写入目录条目失败" "$REPO_URL"
+git -C "$WORK_DIR" add "$ENTRY" || finish fail "暂存目录条目失败" "$REPO_URL"
+git -C "$WORK_DIR" -c user.name=dshdesk -c user.email=dshdesk@example.com commit -q -m "Add ${OWNER}/${REPO} to the catalog" || finish fail "提交目录条目失败" "$REPO_URL"
+set +e
+PUSH_OUT="$(git -C "$WORK_DIR" push --force fork "HEAD:refs/heads/$BRANCH" 2>&1)"
+PUSH_CODE=$?
+set -e
+if [ "$PUSH_CODE" != "0" ]; then
+  echo "$PUSH_OUT" >&2
+  finish fail "推送 fork 分支失败" "$REPO_URL"
+fi
 
 PR_URL="$(gh pr create --repo "$CATALOG_OWNER/$CATALOG_REPO" --head "$OWNER:$BRANCH" --base main \
   --title "Add ${OWNER}/${REPO}" \
