@@ -56,7 +56,7 @@ window.__ModuleLoader__.load({
     const DICT_ZH = {
       'button.title': '任务看板',
       'button.aria': '任务看板：进行中 {running} 项，需要你 {needs} 项，验收 {review} 项',
-      'button.label': '看板',
+      'button.label': '任务看板',
       'panel.close': '关闭',
       'panel.pin': '钉成置顶小窗',
       'panel.pinActive': '关闭置顶小窗',
@@ -84,7 +84,7 @@ window.__ModuleLoader__.load({
     const DICT_EN = {
       'button.title': 'Attention board',
       'button.aria': 'Attention board: {running} in progress, {needs} need you, {review} to review',
-      'button.label': 'Board',
+      'button.label': 'Task board',
       'panel.close': 'Close',
       'panel.pin': 'Pin as always-on-top',
       'panel.pinActive': 'Close pinned window',
