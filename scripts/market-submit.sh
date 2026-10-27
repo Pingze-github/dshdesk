@@ -184,6 +184,9 @@ if [ "$DRY" = "1" ]; then
 fi
 
 echo "market-submit: syncing fork"
+if ! gh api "repos/$OWNER/$CATALOG_REPO" >/dev/null 2>&1; then
+  gh repo fork "$CATALOG_OWNER/$CATALOG_REPO" --clone=false >/dev/null 2>&1 || finish fail "创建/读取 fork 失败" "$REPO_URL"
+fi
 gh repo sync "$OWNER/$CATALOG_REPO" --source "$CATALOG_OWNER/$CATALOG_REPO" --branch main >/dev/null 2>&1 || \
   gh repo sync "$OWNER/$CATALOG_REPO" --source "$CATALOG_OWNER/$CATALOG_REPO" --branch main --force >/dev/null 2>&1 || \
   finish fail "同步 fork 失败" "$REPO_URL"
